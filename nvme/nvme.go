@@ -122,41 +122,69 @@ func (d *NVMeDevice) IdentifyNamespace(w io.Writer, namespace uint32) error {
 	return nil
 }
 
-func (d *NVMeDevice) PrintSMART(w io.Writer) error {
+func (d *NVMeDevice) getSMART() (NvmeSMART, error) {
 	buf := make([]byte, 512)
 
 	// Read SMART log
 	if err := d.readLogPage(0x02, &buf); err != nil {
-		return err
+		return NvmeSMART{}, err
 	}
 
 	var sl nvmeSMARTLog
+	err := binary.Read(bytes.NewBuffer(buf[:]), NativeEndian, &sl)
+	if err != nil {
+		return NvmeSMART{}, err
+	}
 
-	binary.Read(bytes.NewBuffer(buf[:]), NativeEndian, &sl)
+	ret := NvmeSMART{
+		CritWarning:      sl.CritWarning,
+		Temperature:      ((uint16(sl.Temperature[0]) | uint16(sl.Temperature[1])<<8) - 273), // Kelvin to degrees Celsius
+		AvailSpare:       sl.AvailSpare,
+		SpareThresh:      sl.SpareThresh,
+		PercentUsed:      sl.PercentUsed,
+		DataUnitsRead:    le128ToBigInt(sl.DataUnitsRead),
+		DataUnitsWritten: le128ToBigInt(sl.DataUnitsWritten),
+		HostReads:        le128ToBigInt(sl.HostReads),
+		HostWrites:       le128ToBigInt(sl.HostWrites),
+		CtrlBusyTime:     le128ToBigInt(sl.CtrlBusyTime),
+		PowerCycles:      le128ToBigInt(sl.PowerCycles),
+		PowerOnHours:     le128ToBigInt(sl.PowerOnHours),
+		UnsafeShutdowns:  le128ToBigInt(sl.UnsafeShutdowns),
+		MediaErrors:      le128ToBigInt(sl.MediaErrors),
+		NumErrLogEntries: le128ToBigInt(sl.NumErrLogEntries),
+	}
+	return ret, nil
+}
 
-	unitsRead := le128ToBigInt(sl.DataUnitsRead)
-	unitsWritten := le128ToBigInt(sl.DataUnitsWritten)
+func (d *NVMeDevice) GetSMART() (NvmeSMART, error) {
+	return d.getSMART()
+
+}
+
+func (d *NVMeDevice) PrintSMART(w io.Writer) error {
+	sl, err := d.getSMART()
+	if err != nil {
+		return err
+	}
 	unit := big.NewInt(512 * 1000)
-
-	fmt.Fprintln(w, "\nSMART data follows:")
+	fmt.Fprintln(w, "\nSMART data follows Foo:")
 	fmt.Fprintf(w, "Critical warning: %#02x\n", sl.CritWarning)
-	fmt.Fprintf(w, "Temperature: %d° Celsius\n",
-		(uint16(sl.Temperature[0])|uint16(sl.Temperature[1])<<8)-273) // Kelvin to degrees Celsius
+	fmt.Fprintf(w, "Temperature: %d° Celsius\n", sl.Temperature)
 	fmt.Fprintf(w, "Avail. spare: %d%%\n", sl.AvailSpare)
 	fmt.Fprintf(w, "Avail. spare threshold: %d%%\n", sl.SpareThresh)
 	fmt.Fprintf(w, "Percentage used: %d%%\n", sl.PercentUsed)
 	fmt.Fprintf(w, "Data units read: %d [%s]\n",
-		unitsRead, formatBigBytes(new(big.Int).Mul(unitsRead, unit)))
+		sl.DataUnitsRead, formatBigBytes(new(big.Int).Mul(sl.DataUnitsRead, unit)))
 	fmt.Fprintf(w, "Data units written: %d [%s]\n",
-		unitsWritten, formatBigBytes(new(big.Int).Mul(unitsWritten, unit)))
-	fmt.Fprintf(w, "Host read commands: %d\n", le128ToBigInt(sl.HostReads))
-	fmt.Fprintf(w, "Host write commands: %d\n", le128ToBigInt(sl.HostWrites))
-	fmt.Fprintf(w, "Controller busy time: %d\n", le128ToBigInt(sl.CtrlBusyTime))
-	fmt.Fprintf(w, "Power cycles: %d\n", le128ToBigInt(sl.PowerCycles))
-	fmt.Fprintf(w, "Power on hours: %d\n", le128ToBigInt(sl.PowerOnHours))
-	fmt.Fprintf(w, "Unsafe shutdowns: %d\n", le128ToBigInt(sl.UnsafeShutdowns))
-	fmt.Fprintf(w, "Media & data integrity errors: %d\n", le128ToBigInt(sl.MediaErrors))
-	fmt.Fprintf(w, "Error information log entries: %d\n", le128ToBigInt(sl.NumErrLogEntries))
+		sl.DataUnitsWritten, formatBigBytes(new(big.Int).Mul(sl.DataUnitsWritten, unit)))
+	fmt.Fprintf(w, "Host read commands: %d\n", sl.HostReads)
+	fmt.Fprintf(w, "Host write commands: %d\n", sl.HostWrites)
+	fmt.Fprintf(w, "Controller busy time: %d\n", sl.CtrlBusyTime)
+	fmt.Fprintf(w, "Power cycles: %d\n", sl.PowerCycles)
+	fmt.Fprintf(w, "Power on hours: %d\n", sl.PowerOnHours)
+	fmt.Fprintf(w, "Unsafe shutdowns: %d\n", sl.UnsafeShutdowns)
+	fmt.Fprintf(w, "Media & data integrity errors: %d\n", sl.MediaErrors)
+	fmt.Fprintf(w, "Error information log entries: %d\n", sl.NumErrLogEntries)
 
 	return nil
 }
@@ -255,3 +283,50 @@ type nvmeSMARTLog struct {
 	TempSensor       [8]uint16
 	Rsvd216          [296]byte
 } // 512 bytes
+
+// NVMe SMART/Health Information
+type NvmeSMART struct {
+	CritWarning      uint8
+	Temperature      uint16
+	AvailSpare       uint8
+	SpareThresh      uint8
+	PercentUsed      uint8
+	Rsvd6            [26]byte
+	DataUnitsRead    *big.Int
+	DataUnitsWritten *big.Int
+	HostReads        *big.Int
+	HostWrites       *big.Int
+	CtrlBusyTime     *big.Int
+	PowerCycles      *big.Int
+	PowerOnHours     *big.Int
+	UnsafeShutdowns  *big.Int
+	MediaErrors      *big.Int
+	NumErrLogEntries *big.Int
+	WarningTempTime  uint32
+	CritCompTime     uint32
+}
+
+/*
+  "critical_warning":0,
+  "temperature":301,
+  "avail_spare":100,
+  "spare_thresh":10,
+  "percent_used":0,
+  "endurance_grp_critical_warning_summary":0,
+  "data_units_read":"11971",
+  "data_units_written":"3672",
+  "host_read_commands":"47566",
+  "host_write_commands":"7258",
+  "controller_busy_time":"0",
+  "power_cycles":"3",
+  "power_on_hours":"0",
+  "unsafe_shutdowns":"2",
+  "media_errors":"0",
+  "num_err_log_entries":"0",
+  "warning_temp_time":0,
+  "critical_comp_time":0,
+  "thm_temp1_trans_count":0,
+  "thm_temp2_trans_count":0,
+  "thm_temp1_total_time":0,
+  "thm_temp2_total_time":0
+*/
