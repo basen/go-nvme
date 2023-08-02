@@ -129,13 +129,11 @@ func (d *NVMeDevice) getSMART() (NvmeSMART, error) {
 	if err := d.readLogPage(0x02, &buf); err != nil {
 		return NvmeSMART{}, err
 	}
-
 	var sl nvmeSMARTLog
 	err := binary.Read(bytes.NewBuffer(buf[:]), NativeEndian, &sl)
 	if err != nil {
 		return NvmeSMART{}, err
 	}
-
 	ret := NvmeSMART{
 		CritWarning:      sl.CritWarning,
 		Temperature:      ((uint16(sl.Temperature[0]) | uint16(sl.Temperature[1])<<8) - 273), // Kelvin to degrees Celsius
@@ -152,6 +150,14 @@ func (d *NVMeDevice) getSMART() (NvmeSMART, error) {
 		UnsafeShutdowns:  le128ToBigInt(sl.UnsafeShutdowns),
 		MediaErrors:      le128ToBigInt(sl.MediaErrors),
 		NumErrLogEntries: le128ToBigInt(sl.NumErrLogEntries),
+		TempSensor1:      tempC(sl.TempSensors[0:2]),
+		TempSensor2:      tempC(sl.TempSensors[2:4]),
+		TempSensor3:      tempC(sl.TempSensors[4:6]),
+		TempSensor4:      tempC(sl.TempSensors[6:8]),
+		TempSensor5:      tempC(sl.TempSensors[8:10]),
+		TempSensor6:      tempC(sl.TempSensors[10:12]),
+		TempSensor7:      tempC(sl.TempSensors[12:14]),
+		TempSensor8:      tempC(sl.TempSensors[14:16]),
 	}
 	return ret, nil
 }
@@ -185,8 +191,35 @@ func (d *NVMeDevice) PrintSMART(w io.Writer) error {
 	fmt.Fprintf(w, "Unsafe shutdowns: %d\n", sl.UnsafeShutdowns)
 	fmt.Fprintf(w, "Media & data integrity errors: %d\n", sl.MediaErrors)
 	fmt.Fprintf(w, "Error information log entries: %d\n", sl.NumErrLogEntries)
+	fmt.Fprintf(w, "Warning composite temperature time: %d\n", sl.WarningTempTime)
+	fmt.Fprintf(w, "Critical composite temperature time: %d\n", sl.CritCompTime)
+	printTempSensor(1, w, sl.TempSensor1)
+	printTempSensor(2, w, sl.TempSensor2)
+	printTempSensor(3, w, sl.TempSensor3)
+	printTempSensor(4, w, sl.TempSensor4)
+	printTempSensor(5, w, sl.TempSensor5)
+	printTempSensor(6, w, sl.TempSensor6)
+	printTempSensor(7, w, sl.TempSensor7)
+	printTempSensor(8, w, sl.TempSensor8)
 
 	return nil
+}
+
+func printTempSensor(id int, w io.Writer, sensor *uint16) {
+	if sensor != nil {
+		fmt.Fprintf(w, "Temperature sensor %d: %d° Celsius\n", id, *sensor)
+	}
+
+}
+
+// parse temperature in Kelvin to degrees Celsius, or nil if not provided
+// https://nvmexpress.org/wp-content/uploads/NVM-Express-Base-Specification-2.0c-2022.10.04-Ratified.pdf
+func tempC(b []uint16) *uint16 {
+	if b[0]|b[1] == 0 {
+		return nil
+	}
+	t := ((uint16(b[0]) | uint16(b[1])<<8) - 273)
+	return &t
 }
 
 func (d *NVMeDevice) readLogPage(logID uint8, buf *[]byte) error {
@@ -280,8 +313,8 @@ type nvmeSMARTLog struct {
 	NumErrLogEntries [16]byte
 	WarningTempTime  uint32
 	CritCompTime     uint32
-	TempSensor       [8]uint16
-	Rsvd216          [296]byte
+	TempSensors      [16]uint16
+	Rsvd216          [280]byte
 } // 512 bytes
 
 // NVMe SMART/Health Information
@@ -304,29 +337,12 @@ type NvmeSMART struct {
 	NumErrLogEntries *big.Int
 	WarningTempTime  uint32
 	CritCompTime     uint32
+	TempSensor1      *uint16
+	TempSensor2      *uint16
+	TempSensor3      *uint16
+	TempSensor4      *uint16
+	TempSensor5      *uint16
+	TempSensor6      *uint16
+	TempSensor7      *uint16
+	TempSensor8      *uint16
 }
-
-/*
-  "critical_warning":0,
-  "temperature":301,
-  "avail_spare":100,
-  "spare_thresh":10,
-  "percent_used":0,
-  "endurance_grp_critical_warning_summary":0,
-  "data_units_read":"11971",
-  "data_units_written":"3672",
-  "host_read_commands":"47566",
-  "host_write_commands":"7258",
-  "controller_busy_time":"0",
-  "power_cycles":"3",
-  "power_on_hours":"0",
-  "unsafe_shutdowns":"2",
-  "media_errors":"0",
-  "num_err_log_entries":"0",
-  "warning_temp_time":0,
-  "critical_comp_time":0,
-  "thm_temp1_trans_count":0,
-  "thm_temp2_trans_count":0,
-  "thm_temp1_total_time":0,
-  "thm_temp2_total_time":0
-*/
