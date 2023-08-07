@@ -158,6 +158,10 @@ func (d *NVMeDevice) getSMART() (NvmeSMART, error) {
 		TempSensor6:      tempC(sl.TempSensors[10:12]),
 		TempSensor7:      tempC(sl.TempSensors[12:14]),
 		TempSensor8:      tempC(sl.TempSensors[14:16]),
+		TM1TransCount:    sl.TM1TransCount,
+		TM2TransCount:    sl.TM2TransCount,
+		TM1TotalTime:     sl.TM1TotalTime,
+		TM2TotalTime:     sl.TM2TotalTime,
 	}
 	return ret, nil
 }
@@ -201,6 +205,10 @@ func (d *NVMeDevice) PrintSMART(w io.Writer) error {
 	printTempSensor(6, w, sl.TempSensor6)
 	printTempSensor(7, w, sl.TempSensor7)
 	printTempSensor(8, w, sl.TempSensor8)
+	fmt.Fprintf(w, "Thermal Management T1 Trans Count: %d\n", sl.TM1TransCount)
+	fmt.Fprintf(w, "Thermal Management TT Trans Count: %d\n", sl.TM2TransCount)
+	fmt.Fprintf(w, "Thermal Management T1 Total Time: %d\n", sl.TM1TotalTime)
+	fmt.Fprintf(w, "Thermal Management T2 Total Time: %d\n", sl.TM2TotalTime)
 
 	return nil
 }
@@ -314,7 +322,11 @@ type nvmeSMARTLog struct {
 	WarningTempTime  uint32
 	CritCompTime     uint32
 	TempSensors      [16]uint16
-	Rsvd216          [280]byte
+	TM1TransCount    uint32
+	TM2TransCount    uint32
+	TM1TotalTime     uint32
+	TM2TotalTime     uint32
+	Rsvd216          [264]byte
 } // 512 bytes
 
 // NVMe SMART/Health Information
@@ -345,4 +357,8 @@ type NvmeSMART struct {
 	TempSensor6      *uint16
 	TempSensor7      *uint16
 	TempSensor8      *uint16
+	TM1TransCount    uint32
+	TM2TransCount    uint32
+	TM1TotalTime     uint32
+	TM2TotalTime     uint32
 }
